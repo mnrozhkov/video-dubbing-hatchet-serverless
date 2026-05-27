@@ -74,7 +74,6 @@ flowchart TB
     subgraph local["🖥️ Your Machine (orchestrates only)"]
         trigger["python -m hatchet.trigger run\nfile or prefix"]
         worker["python -m hatchet.worker"]
-        probe["scripts/probe_stage_remote.py\n(L4 — one stage, no Hatchet)"]
     end
 
     subgraph hatchet["☁️ Hatchet Cloud / Self-hosted"]
@@ -98,7 +97,6 @@ flowchart TB
     worker <-->|orchestrates| dashboard
     worker --> wf
     wf --> extract --> transcribe --> translate --> tts --> remux
-    probe -.->|"single stage, bypass orchestrator"| nebius
     storage <-->|"/data FUSE mount"| nebius
 
     style local fill:#f0eeff,stroke:#7F77DD,color:#3C3489

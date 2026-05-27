@@ -353,11 +353,11 @@ python -m hatchet.trigger run sample_file/sample.mp4 --run-id l5-demo
 python -m hatchet.trigger run sample_batch/ --run-id l5-batch
 
 # Retrieve the run summary (cost, savings, timing per stage)
-aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-demo/run_summary.json" - \
+aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-batch/run_summary.json" - \
   --endpoint-url "$AWS_ENDPOINT_URL" | jq .
 
 # Retrieve the dubbed mp4
-aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-demo/remux/sample.mp4" data/output.mp4 \
+aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-batch/remux/sample.mp4" data/output.mp4 \
   --endpoint-url "$AWS_ENDPOINT_URL"
 ```
 
