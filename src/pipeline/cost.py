@@ -1,31 +1,29 @@
-"""Nebius preset → USD/min price table + cost-estimation helpers.
+"""Nebius preset → USD/hour price table + cost-estimation helpers.
 
-Prices are hardcoded approximations; **verify against the current Nebius pricing
-console** (https://nebius.com/services/serverless-jobs/pricing) before quoting
-numbers anywhere user-facing. The talk-prep PR is the place to refresh these.
+Rates match the published prices at https://nebius.com/prices (checked 2026-05-27).
+GPU prices are per GPU-hour; CPU prices are per instance-hour.
 
 Lookup key: ``(platform, preset, preemptible)``. Preemptible prices apply only
-when the job actually ran on preemptible capacity (~70-85% discount vs on-demand
-on Nebius today). On-demand cost for the same wall time is computed via
-``on_demand_estimate()`` (used in savings rollups).
+when the job actually ran on preemptible capacity. On-demand cost for the same
+wall time is computed via ``on_demand_estimate()`` (used in savings rollups).
 """
 
 from __future__ import annotations
 
-# TODO(verify): refresh from Nebius pricing console before quoting cost numbers.
-# Last manual check: 2026-05 — values are *order-of-magnitude* placeholders.
+# Rates in USD/hour, with 450 GiB boot disk.  Source: https://nebius.com/prices, checked 2026-05-27.
 PRICE_PER_MIN_USD: dict[tuple[str, str, bool], float] = {
     # CPU
-    ("cpu-e2", "4vcpu-16gb",  False): 0.003,
-    ("cpu-e2", "8vcpu-32gb",  False): 0.006,
-    # GPU L40S — preemptible vs on-demand
-    ("gpu-l40s-d", "1gpu-16vcpu-96gb", True):  0.012,
-    ("gpu-l40s-d", "1gpu-16vcpu-96gb", False): 0.060,
-    # GPU H100/H200 SXM
-    ("gpu-h100-sxm", "1gpu-16vcpu-200gb", True):  0.040,
-    ("gpu-h100-sxm", "1gpu-16vcpu-200gb", False): 0.180,
-    ("gpu-h200-sxm", "1gpu-16vcpu-200gb", True):  0.060,
-    ("gpu-h200-sxm", "1gpu-16vcpu-200gb", False): 0.250,
+    ("cpu-e2", "4vcpu-16gb",  False): 0.16,
+    ("cpu-e2", "8vcpu-32gb",  False): 0.26,
+    # GPU L40S with Intel CPU: from $0.90 preemptible / $1.82 on-demand per GPU-hour
+    ("gpu-l40s-d", "1gpu-16vcpu-96gb", True):  0.94,
+    ("gpu-l40s-d", "1gpu-16vcpu-96gb", False): 1.87,
+    # GPU H100 HGX SXM: $1.25 preemptible / $2.95 on-demand per GPU-hour
+    ("gpu-h100-sxm", "1gpu-16vcpu-200gb", True):  1.3,
+    ("gpu-h100-sxm", "1gpu-16vcpu-200gb", False): 3.00,
+    # GPU H200 HGX SXM: $1.45 preemptible / $3.50 on-demand per GPU-hour
+    ("gpu-h200-sxm", "1gpu-16vcpu-200gb", True):  1.50,
+    ("gpu-h200-sxm", "1gpu-16vcpu-200gb", False): 3.55,
 }
 
 
@@ -41,7 +39,7 @@ def estimate_cost(platform: str, preset: str, preemptible: bool, run_s: float) -
     """USD estimate for a job that ran ``run_s`` seconds on the given machine."""
     if run_s <= 0:
         return 0.0
-    return _lookup(platform, preset, preemptible) * (run_s / 60.0)
+    return _lookup(platform, preset, preemptible) * (run_s / 3600.0)
 
 
 def on_demand_estimate(platform: str, preset: str, run_s: float) -> float:
@@ -52,4 +50,4 @@ def on_demand_estimate(platform: str, preset: str, run_s: float) -> float:
     """
     if run_s <= 0:
         return 0.0
-    return _lookup(platform, preset, preemptible=False) * (run_s / 60.0)
+    return _lookup(platform, preset, preemptible=False) * (run_s / 3600.0)
