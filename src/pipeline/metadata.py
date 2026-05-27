@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from pipeline.config import config
-from pipeline.cost import estimate_cost, on_demand_estimate
+from pipeline.cost import estimate_cost
 from pipeline.paths import (
     RUNS_PREFIX,
     run_summary_key,
@@ -355,21 +355,14 @@ def _job_run_s(record: dict[str, Any]) -> float:
     return float(terminal_at - running_at)
 
 
-def _job_cost_usd(record: dict[str, Any]) -> float:
-    return estimate_cost(
-        platform=record.get("platform", ""),
-        preset=record.get("preset", ""),
-        preemptible=bool(record.get("preemptible", False)),
-        run_s=_job_run_s(record),
-    )
-
-
-def _job_on_demand_usd(record: dict[str, Any]) -> float:
-    return on_demand_estimate(
-        platform=record.get("platform", ""),
-        preset=record.get("preset", ""),
-        run_s=_job_run_s(record),
-    )
+def _job_costs(record: dict[str, Any]) -> tuple[float, float, float]:
+    """Return (run_s, actual_usd, on_demand_usd) for one job record."""
+    platform = record.get("platform", "")
+    preset = record.get("preset", "")
+    run_s = _job_run_s(record)
+    actual = estimate_cost(platform, preset, bool(record.get("preemptible", False)), run_s)
+    on_demand = estimate_cost(platform, preset, False, run_s)
+    return run_s, actual, on_demand
 
 
 def write_task_orchestration_report(
@@ -381,15 +374,15 @@ def write_task_orchestration_report(
 ) -> dict[str, Any]:
     """Persist per-chunk Nebius job records for one stage + the cost rollup."""
     enriched: list[dict[str, Any]] = []
+    total_actual = 0.0
+    total_on_demand = 0.0
     for j in jobs:
-        run_s = _job_run_s(j)
-        enriched.append({
-            **j,
-            "run_s": round(run_s, 2),
-            "estimated_usd": round(_job_cost_usd(j), 4),
-        })
-    cost_usd = round(sum(_job_cost_usd(j) for j in jobs), 4)
-    on_demand_usd = round(sum(_job_on_demand_usd(j) for j in jobs), 4)
+        run_s, actual, on_demand = _job_costs(j)
+        enriched.append({**j, "run_s": round(run_s, 2), "estimated_usd": round(actual, 4)})
+        total_actual += actual
+        total_on_demand += on_demand
+    cost_usd = round(total_actual, 4)
+    on_demand_usd = round(total_on_demand, 4)
     payload = {
         "task": task,
         "run_id": run_id,

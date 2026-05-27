@@ -3,15 +3,14 @@
 Rates match the published prices at https://nebius.com/prices (checked 2026-05-27).
 GPU prices are per GPU-hour; CPU prices are per instance-hour.
 
-Lookup key: ``(platform, preset, preemptible)``. Preemptible prices apply only
-when the job actually ran on preemptible capacity. On-demand cost for the same
-wall time is computed via ``on_demand_estimate()`` (used in savings rollups).
+Lookup key: ``(platform, preset, preemptible)``. Pass ``preemptible=False`` to
+get the on-demand rate for savings calculations.
 """
 
 from __future__ import annotations
 
 # Rates in USD/hour, with 450 GiB boot disk.  Source: https://nebius.com/prices, checked 2026-05-27.
-PRICE_PER_MIN_USD: dict[tuple[str, str, bool], float] = {
+PRICE_PER_HOUR_USD: dict[tuple[str, str, bool], float] = {
     # CPU
     ("cpu-e2", "4vcpu-16gb",  False): 0.16,
     ("cpu-e2", "8vcpu-32gb",  False): 0.26,
@@ -28,7 +27,7 @@ PRICE_PER_MIN_USD: dict[tuple[str, str, bool], float] = {
 
 
 def _lookup(platform: str, preset: str, preemptible: bool) -> float:
-    rate = PRICE_PER_MIN_USD.get((platform, preset, preemptible))
+    rate = PRICE_PER_HOUR_USD.get((platform, preset, preemptible))
     if rate is None:
         # Unknown combo → return 0 rather than blow up; surfaces as "n/a" in summary.
         return 0.0
@@ -42,12 +41,3 @@ def estimate_cost(platform: str, preset: str, preemptible: bool, run_s: float) -
     return _lookup(platform, preset, preemptible) * (run_s / 3600.0)
 
 
-def on_demand_estimate(platform: str, preset: str, run_s: float) -> float:
-    """What the same wall time would have cost at on-demand rates.
-
-    Used by ``write_run_summary`` to quantify the savings from running on
-    preemptible capacity.
-    """
-    if run_s <= 0:
-        return 0.0
-    return _lookup(platform, preset, preemptible=False) * (run_s / 3600.0)
