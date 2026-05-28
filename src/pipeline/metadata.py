@@ -21,7 +21,7 @@ from pipeline.paths import (
     task_orch_report_key,
     task_report_key,
 )
-from pipeline.storage import list_objects, object_exists, read_json, upload_json
+from pipeline.storage import list_objects, read_json, upload_json
 from pipeline.utils import utc_now
 
 if TYPE_CHECKING:
@@ -502,21 +502,25 @@ def missing_inputs(run: PipelineRun, task: str) -> dict[str, list[str]]:
     ``{"video_keys": [], "stems": [...]}`` for downstream stages. Empty values
     on both keys mean nothing to do.
     """
+    from pipeline.paths import task_artifacts_prefix
+    from pipeline.storage import list_existing
+
     items = _items_for(run, task)
     output_fields = _OUTPUT_FIELDS[task]
+    existing = list_existing(task_artifacts_prefix(run.run_id, task))
 
     if task == "extract":
         video_keys = [
             item["video_key"]
             for item in items
-            if any(not object_exists(item[f]) for f in output_fields)
+            if any(item[f] not in existing for f in output_fields)
         ]
         return {"video_keys": video_keys, "stems": []}
 
     stems = [
         item["stem"]
         for item in items
-        if any(not object_exists(item[f]) for f in output_fields)
+        if any(item[f] not in existing for f in output_fields)
     ]
     return {"video_keys": [], "stems": stems}
 

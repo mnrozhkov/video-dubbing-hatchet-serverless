@@ -27,7 +27,7 @@ import asyncio
 from hatchet_sdk import Context, Hatchet
 
 from pipeline.batch import chunk
-from pipeline.config import StageConfig, config
+from pipeline.config import config
 from pipeline.metadata import (
     STAGE_TASKS,
     expected_output_keys,
@@ -41,15 +41,12 @@ from pipeline.metadata import (
 from pipeline.nebius import NebiusJobError, create_and_wait
 from pipeline.paths import (
     run_summary_key,
+    task_artifacts_prefix,
     task_manifest_container_path,
     task_report_key,
 )
 from pipeline.run import PipelineRun
-from pipeline.storage import object_exists
-
-
-def _hatchet_timeout(stage: StageConfig) -> str:
-    return f"{stage.compute.job_timeout_min * 60 + config.timeout_buffer_s}s"
+from pipeline.storage import list_existing
 
 
 hatchet = Hatchet(debug=True)
@@ -166,7 +163,8 @@ async def _run_remote(task: str, run: PipelineRun, ctx: Context) -> dict:
     bs = cfg.batch_size
 
     expected = expected_output_keys(run, task)
-    missing = [k for k in expected if not object_exists(k)]
+    existing = list_existing(task_artifacts_prefix(run.run_id, task))
+    missing = [k for k in expected if k not in existing]
 
     if expected and not missing and not run.force:
         ctx.log(f"[{task}] all {len(expected)} outputs present; skipping Nebius launch")
@@ -255,7 +253,8 @@ async def _run_remote(task: str, run: PipelineRun, ctx: Context) -> dict:
 
     # Re-compute expected (extract populates it; downstream needs upstream report).
     expected = expected_output_keys(run, task)
-    still_missing = [k for k in expected if not object_exists(k)]
+    existing = list_existing(task_artifacts_prefix(run.run_id, task))
+    still_missing = [k for k in expected if k not in existing]
     if still_missing:
         sample = ", ".join(still_missing[:5]) + ("…" if len(still_missing) > 5 else "")
         raise RuntimeError(
@@ -271,46 +270,27 @@ async def _run_remote(task: str, run: PipelineRun, ctx: Context) -> dict:
     }
 
 
-@workflow.task(
-    execution_timeout=_hatchet_timeout(config.pipeline.extract),
-    retries=config.stages.extract.retries,
-)
+@workflow.task(retries=config.stages.extract.retries)
 async def extract(run: PipelineRun, ctx: Context) -> dict:
     return await _run_remote("extract", run, ctx)
 
 
-@workflow.task(
-    parents=[extract],
-    execution_timeout=_hatchet_timeout(config.pipeline.transcribe),
-    retries=config.stages.transcribe.retries,
-)
+@workflow.task(parents=[extract], retries=config.stages.transcribe.retries)
 async def transcribe(run: PipelineRun, ctx: Context) -> dict:
     return await _run_remote("transcribe", run, ctx)
 
 
-@workflow.task(
-    parents=[transcribe],
-    execution_timeout=_hatchet_timeout(config.pipeline.translate),
-    retries=config.stages.translate.retries,
-)
+@workflow.task(parents=[transcribe], retries=config.stages.translate.retries)
 async def translate(run: PipelineRun, ctx: Context) -> dict:
     return await _run_remote("translate", run, ctx)
 
 
-@workflow.task(
-    parents=[translate],
-    execution_timeout=_hatchet_timeout(config.pipeline.tts),
-    retries=config.stages.tts.retries,
-)
+@workflow.task(parents=[translate], retries=config.stages.tts.retries)
 async def tts(run: PipelineRun, ctx: Context) -> dict:
     return await _run_remote("tts", run, ctx)
 
 
-@workflow.task(
-    parents=[tts],
-    execution_timeout=_hatchet_timeout(config.pipeline.remux),
-    retries=config.stages.remux.retries,
-)
+@workflow.task(parents=[tts], retries=config.stages.remux.retries)
 async def remux(run: PipelineRun, ctx: Context) -> dict:
     return await _run_remote("remux", run, ctx)
 

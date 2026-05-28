@@ -130,6 +130,11 @@ def run_summary_key(run_id: str) -> str:
     return f"{RUNS_PREFIX}/{run_id}/run_summary.json"
 
 
+def task_artifacts_prefix(run_id: str, task: str) -> str:
+    """Prefix covering all artifact outputs for one stage: ``runs/{run_id}/{task}/``."""
+    return f"{RUNS_PREFIX}/{run_id}/{task}/"
+
+
 def _build_run_item(stem: str, run_id: str, *, video_key: str = "") -> dict[str, str]:
     return {
         "video_key": video_key,

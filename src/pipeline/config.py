@@ -5,7 +5,7 @@ Two-tier configuration:
   (Hatchet) sits at the root and contains the pipeline it runs:
 
       HatchetConfig                          ← top-level, BaseSettings (env-aware)
-      ├── workflow_name, timeout_buffer_s
+      ├── workflow_name
       ├── stages: HatchetStages              ← per-stage orchestration (max_concurrent, retries)
       └── pipeline: PipelineConfig           ← what gets orchestrated
           ├── target_lang, image_tag
@@ -43,7 +43,7 @@ class Compute(BaseModel):
 
     ``job_timeout_min`` is the single source of truth for "how long this stage may
     run". The Hatchet ``execution_timeout`` is derived from it plus
-    ``HatchetConfig.timeout_buffer_s``.
+    ``Compute.job_timeout_min`` is the single source of truth for job duration.
     """
 
     platform: str = "cpu-e2"
@@ -55,14 +55,14 @@ class Compute(BaseModel):
 
 class StageConfig(BaseModel):
     image_name: str  # registry/repo without tag; tag from PipelineConfig.image_tag
-    batch_size: int = 100  # files per Nebius job (chunk size)
+    batch_size: int = 500  # files per Nebius job (chunk size)
     compute: Compute = Field(default_factory=Compute)
 
 
 class ExtractConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-extract"
     batch_size: int = 1000
-    compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=20))
+    compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=40))
 
 
 class TranscribeConfig(StageConfig):
@@ -111,7 +111,7 @@ class TtsConfig(StageConfig):
 class RemuxConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-remux"
     batch_size: int = 1000
-    compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=20))
+    compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=40))
 
 
 class PipelineConfig(BaseModel):
@@ -145,9 +145,9 @@ class HatchetStages(BaseModel):
     """Per-stage Hatchet orchestration — mirrors PipelineConfig stage names."""
 
     extract:    StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
-    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
-    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
-    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
+    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
+    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
     remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
 
 
@@ -167,7 +167,6 @@ class HatchetConfig(BaseSettings):
 
     # ── Workflow-level ─────────────────────────────────────────────────
     workflow_name: str = "video-dubbing-batch-pipeline"
-    timeout_buffer_s: int = 600  # cold start + SDK overhead; added to job_timeout_min
 
     # ── Per-stage orchestration ────────────────────────────────────────
     stages: HatchetStages = Field(default_factory=HatchetStages)
