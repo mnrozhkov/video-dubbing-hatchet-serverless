@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import typer
 
-from hatchet.download import app as download_app
+from pipeline.download import app as download_app
 
 app = typer.Typer(
     name="dub",

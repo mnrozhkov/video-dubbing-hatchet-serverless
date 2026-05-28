@@ -1,4 +1,4 @@
-"""Shared Rich console and logging setup for Hatchet CLIs."""
+"""Shared Rich console and logging setup for pipeline CLIs."""
 
 from __future__ import annotations
 

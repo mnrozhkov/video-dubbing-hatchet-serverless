@@ -55,13 +55,13 @@ class Compute(BaseModel):
 
 class StageConfig(BaseModel):
     image_name: str  # registry/repo without tag; tag from PipelineConfig.image_tag
-    batch_size: int = 10  # files per Nebius job (chunk size)
+    batch_size: int = 100  # files per Nebius job (chunk size)
     compute: Compute = Field(default_factory=Compute)
 
 
 class ExtractConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-extract"
-    batch_size: int = 50
+    batch_size: int = 1000
     compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=20))
 
 
@@ -110,7 +110,7 @@ class TtsConfig(StageConfig):
 
 class RemuxConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-remux"
-    batch_size: int = 50
+    batch_size: int = 1000
     compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=20))
 
 
@@ -145,9 +145,9 @@ class HatchetStages(BaseModel):
     """Per-stage Hatchet orchestration — mirrors PipelineConfig stage names."""
 
     extract:    StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
-    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=4))
-    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=8))
-    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=4))
+    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
     remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
 
 

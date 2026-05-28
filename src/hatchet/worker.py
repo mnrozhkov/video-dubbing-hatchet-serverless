@@ -16,7 +16,7 @@ import logging
 
 from rich.panel import Panel
 
-from hatchet.console import get_console, setup_logging
+from pipeline.console import get_console, setup_logging
 from hatchet.workflow import hatchet, workflow
 
 logger = logging.getLogger(__name__)
