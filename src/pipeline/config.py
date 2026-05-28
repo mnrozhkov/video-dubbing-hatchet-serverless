@@ -41,9 +41,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Compute(BaseModel):
     """Cloud machine spec for one pipeline stage — feeds directly into Nebius ``JobSpec``.
 
-    ``job_timeout_min`` is the single source of truth for "how long this stage may
-    run". The Hatchet ``execution_timeout`` is derived from it plus
-    ``Compute.job_timeout_min`` is the single source of truth for job duration.
+    ``job_timeout_min`` is the single source of truth for job duration — Nebius
+    enforces it directly; no separate Hatchet execution_timeout is set.
     """
 
     platform: str = "cpu-e2"
@@ -55,18 +54,19 @@ class Compute(BaseModel):
 
 class StageConfig(BaseModel):
     image_name: str  # registry/repo without tag; tag from PipelineConfig.image_tag
-    batch_size: int = 500  # files per Nebius job (chunk size)
+    batch_size: int = 100  # files per Nebius job (chunk size)
     compute: Compute = Field(default_factory=Compute)
 
 
 class ExtractConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-extract"
-    batch_size: int = 1000
+    batch_size: int = 500
     compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=40))
 
 
 class TranscribeConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-transcribe"
+    batch_size: int = 100
     model: str = "distil-large-v3"
     device: str = "cuda"
     align_lang: str = "en"  # WhisperX align weights for English source audio
@@ -82,6 +82,7 @@ class TranscribeConfig(StageConfig):
 
 class TranslateConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-translate"
+    batch_size: int = 100
     model: str = "facebook/nllb-200-distilled-1.3B"
     device: str = "cuda"
     compute: Compute = Field(
@@ -95,6 +96,7 @@ class TranslateConfig(StageConfig):
 
 class TtsConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-tts"
+    batch_size: int = 100
     voice: str = "af_bella"
     lang: str = "e"  # Kokoro Spanish pipeline (EN source → ES dub)
     repo: str = "hexgrad/Kokoro-82M"
@@ -110,7 +112,7 @@ class TtsConfig(StageConfig):
 
 class RemuxConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-remux"
-    batch_size: int = 1000
+    batch_size: int = 500
     compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=40))
 
 
@@ -144,11 +146,11 @@ class StageOrchestration(BaseModel):
 class HatchetStages(BaseModel):
     """Per-stage Hatchet orchestration — mirrors PipelineConfig stage names."""
 
-    extract:    StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
-    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
-    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
-    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
-    remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=1))
+    extract:    StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
+    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
+    remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
 
 
 class HatchetConfig(BaseSettings):
