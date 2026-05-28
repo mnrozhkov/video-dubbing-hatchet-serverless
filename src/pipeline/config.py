@@ -48,7 +48,7 @@ class Compute(BaseModel):
     platform: str = "cpu-e2"
     preset: str = "4vcpu-16gb"
     preemptible: bool = False
-    job_disk_gb: int = 450
+    job_disk_gb: int = 250
     job_timeout_min: int = 60
 
 
@@ -66,7 +66,7 @@ class ExtractConfig(StageConfig):
 
 class TranscribeConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-transcribe"
-    batch_size: int = 100
+    batch_size: int = 200
     model: str = "distil-large-v3"
     device: str = "cuda"
     align_lang: str = "en"  # WhisperX align weights for English source audio
@@ -82,7 +82,7 @@ class TranscribeConfig(StageConfig):
 
 class TranslateConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-translate"
-    batch_size: int = 100
+    batch_size: int = 200
     model: str = "facebook/nllb-200-distilled-1.3B"
     device: str = "cuda"
     compute: Compute = Field(
@@ -96,7 +96,7 @@ class TranslateConfig(StageConfig):
 
 class TtsConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-tts"
-    batch_size: int = 100
+    batch_size: int = 200
     voice: str = "af_bella"
     lang: str = "e"  # Kokoro Spanish pipeline (EN source → ES dub)
     repo: str = "hexgrad/Kokoro-82M"
@@ -112,7 +112,7 @@ class TtsConfig(StageConfig):
 
 class RemuxConfig(StageConfig):
     image_name: str = "mnrozhkov/video-dubbing-remux"
-    batch_size: int = 500
+    batch_size: int = 200
     compute: Compute = Field(default_factory=lambda: Compute(job_timeout_min=40))
 
 
@@ -147,10 +147,10 @@ class HatchetStages(BaseModel):
     """Per-stage Hatchet orchestration — mirrors PipelineConfig stage names."""
 
     extract:    StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
-    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
-    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
-    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=10))
-    remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=2))
+    transcribe: StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=5))
+    translate:  StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=5))
+    tts:        StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=5))
+    remux:      StageOrchestration = Field(default_factory=lambda: StageOrchestration(max_concurrent=5))
 
 
 class HatchetConfig(BaseSettings):

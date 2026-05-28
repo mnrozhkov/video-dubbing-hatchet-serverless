@@ -525,6 +525,55 @@ def missing_inputs(run: PipelineRun, task: str) -> dict[str, list[str]]:
     return {"video_keys": [], "stems": stems}
 
 
+def write_fan_out_task_report(
+    run: PipelineRun,
+    task: str,
+    expected: list[str],
+    *,
+    processed: int,
+) -> None:
+    """Write a consolidated task report from the orchestrator after fan-out completes.
+
+    In fan-out mode (max_concurrent > 1), each Nebius chunk container writes to the
+    same report key and the last one wins — leaving downstream stages with only one
+    chunk's worth of stems. This function overwrites that partial report with the
+    full set of confirmed-present outputs, so downstream pre-flight sees all files.
+    """
+    started = utc_now()
+    outputs_key = {
+        "extract": "audio_keys",
+        "transcribe": "transcript_keys",
+        "translate": "translated_keys",
+        "tts": "dubbed_keys",
+        "remux": "output_keys",
+    }[task]
+
+    extra: dict[str, list[str]] = {}
+    if task == "transcribe":
+        extra["aligned_keys"] = expected[1::2]
+        result_keys = expected[0::2]
+    else:
+        result_keys = expected
+
+    result: dict[str, Any] = {outputs_key: result_keys, **extra}
+    if task == "extract":
+        result["video_keys"] = list(run.video_keys)
+        result["stems"] = [Path(k).stem for k in result_keys]
+
+    total = len(result_keys)
+    skipped = total - processed
+    timing = {
+        "task": task,
+        "total_files": total,
+        "processed_files": processed,
+        "skipped_files": skipped,
+        "wall_s": 0.0,
+        "per_file_s": 0.0,
+    }
+    result["timing"] = timing
+    _write_task_report(run.run_id, run.batch_id, task, result, started_at=started)
+
+
 def write_skipped_report(run: PipelineRun, task: str, expected: list[str]) -> dict[str, Any]:
     """Emit a status='skipped' report when Hatchet pre-flight finds nothing to do.
 
