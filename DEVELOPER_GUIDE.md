@@ -26,7 +26,7 @@ The same per-task `run_task(config)` function runs at every level — only the w
 | Nebius account + bucket | L4+ | [console.nebius.ai](https://console.nebius.ai) |
 | Hatchet account or self-hosted | L5 | [cloud.hatchet.run](https://cloud.hatchet.run), or `docker compose -f docker/docker-compose.yml up -d` then open `http://localhost:8888` (signup → create API token → paste into `.env` as `HATCHET_CLIENT_TOKEN`). If signup traps you on a "verify your email" page, flip the bit manually:<br>`docker compose -f docker/docker-compose.yml exec -T postgres psql -U hatchet -d hatchet -c 'UPDATE "User" SET "emailVerified" = true WHERE "emailVerified" = false;'` |
 
-Sample videos already in the repo at [`data/sample_file/sample.mp4`](data/sample_file/sample.mp4) and [`data/sample_batch/`](data/sample_batch/). Need more? `python scripts/download_samples.py nasa --sample-size 10`.
+Sample videos already in the repo at [`data/sample_file/sample.mp4`](data/sample_file/sample.mp4) and [`data/sample_batch/`](data/sample_batch/). Need a larger or mixed batch? See [Creating a dataset](#creating-a-dataset) below.
 
 ## 3. One-time setup
 
@@ -185,13 +185,59 @@ HF auto-download is broken on FUSE — the container must find models already ca
 python scripts/sync_models.py
 ```
 
-### C. Sample video in the bucket
+### C. Dataset in the bucket <a name="creating-a-dataset"></a>
+
+#### Single file (quick smoke-test)
 
 ```bash
 aws s3 cp data/sample_file/sample.mp4 \
   "s3://$NEBIUS_BUCKET_NAME/sample_file/sample.mp4" \
   --endpoint-url "$AWS_ENDPOINT_URL"
 ```
+
+#### Batch dataset — `download_samples.py`
+
+`scripts/download_samples.py` downloads a source clip, creates N local copies in `data/sample_batch/`, and uploads them to a named S3 prefix in one command. **Downloads once, copies locally N times — no repeated network calls.**
+
+```bash
+# NASA clip only (no yt-dlp required) — 100 files → S3 prefix demo-100/
+python scripts/download_samples.py nasa \
+  --sample-size 100 \
+  --s3-prefix demo-100
+
+# Mixed: 50 % NASA + 50 % Tears of Steel (requires yt-dlp) — reproducible split
+python scripts/download_samples.py mix \
+  --sample-size 100 \
+  --nasa-ratio 0.5 \
+  --s3-prefix demo-100 \
+  --seed 42
+
+# yt-dlp missing? mix falls back to NASA-only automatically (prints a warning).
+```
+
+After this, trigger the pipeline against the uploaded prefix:
+
+```bash
+python -m hatchet.trigger run demo-100/ --run-id demo-100
+```
+
+**Options common to all subcommands:**
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--sample-size N` | — | Number of local copies to create |
+| `--s3-prefix PREFIX` | — | Upload batch to `s3://<bucket>/<PREFIX>/` (omit to stay local) |
+| `--data-dir PATH` | `data/` | Local output root |
+| `--verbose` | off | Debug logging |
+
+**`mix`-specific options:**
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--nasa-ratio FLOAT` | `0.5` | Fraction of files drawn from NASA source (0.0–1.0) |
+| `--nasa-duration FLOAT` | `75.0` | NASA clip length in seconds |
+| `--tos-start / --tos-duration` | `300 / 60` | Tears of Steel clip window |
+| `--seed INT` | — | Fix the random source assignment for reproducibility |
 
 ### D. Container images pushed
 
@@ -353,11 +399,11 @@ python -m hatchet.trigger run sample_file/sample.mp4 --run-id l5-demo
 python -m hatchet.trigger run sample_batch/ --run-id l5-batch
 
 # Retrieve the run summary (cost, savings, timing per stage)
-aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-demo/run_summary.json" - \
+aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-batch/run_summary.json" - \
   --endpoint-url "$AWS_ENDPOINT_URL" | jq .
 
 # Retrieve the dubbed mp4
-aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-demo/remux/sample.mp4" data/output.mp4 \
+aws s3 cp "s3://$NEBIUS_BUCKET_NAME/runs/l5-batch/remux/sample.mp4" data/output.mp4 \
   --endpoint-url "$AWS_ENDPOINT_URL"
 ```
 
@@ -447,9 +493,11 @@ src/
     paths.py              ← bucket-relative paths, resolve_video_keys, build_run_items
     storage.py            ← S3 + local fs I/O; use_local_artifacts contextvar; data_root()
     config.py             ← HatchetConfig (orchestrator + nested PipelineConfig); defaults in code
-    cost.py               ← preset → $/min table, cost estimation
+    cost.py               ← preset → $/hour table, cost estimation (estimate_cost)
     batch.py              ← chunking helper used by the workflow's fan-out branch
-    utils.py              ← utc_now, Rich console + logging helpers
+    utils.py              ← utc_now helper
+    console.py            ← shared Rich console + logging setup for CLI tools
+    download.py           ← download_samples CLI: fetch source clips, populate local batch, upload to S3
   jobs/
     extract.py            ← ffmpeg per file
     transcribe.py         ← faster-whisper + WhisperX
@@ -460,6 +508,7 @@ src/
     workflow.py           ← 6-task DAG (5 stages + summary); each stage: pre-flight → create_and_wait → verify
     worker.py             ← `python -m hatchet.worker`
     trigger.py            ← `python -m hatchet.trigger run …`
+    cli.py                ← unified `dub` CLI (worker / trigger / download subcommands)
   models/                 ← model cache helpers + sync logic
 docker/
   base-cpu.Dockerfile     ← shared CPU + torch (Mac / no-GPU)
@@ -467,7 +516,7 @@ docker/
   <task>.Dockerfile       ← one per task; FROM video-dubbing-base
   docker-compose.yml      ← self-hosted Hatchet (optional)
 scripts/
-  download_samples.py
+  download_samples.py     ← thin entry point for pipeline.download (see §7C)
   sync_models.py          ← one-shot: check bucket → download missing → upload → verify
   probe_stage_remote.py   ← L4: one Nebius job at a time, no orchestrator
   docker_build.sh

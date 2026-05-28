@@ -54,6 +54,7 @@ def _transcribe_one(
         flush=True,
     )
     transcript_path.parent.mkdir(parents=True, exist_ok=True)
+    transcript_path.unlink(missing_ok=True)  # S3 FUSE: unlink before write to avoid FileExistsError
     transcript_path.write_text(
         "\n".join(s.text.strip() for s in segments if s.text.strip()) + "\n",
         encoding="utf-8",
@@ -86,6 +87,7 @@ def _align_one(
     audio = whisperx.load_audio(str(audio_path))
     result = whisperx.align(wx_segments, model_a, metadata, audio, device)
     aligned_path.parent.mkdir(parents=True, exist_ok=True)
+    aligned_path.unlink(missing_ok=True)  # S3 FUSE: unlink before write to avoid FileExistsError
     aligned_path.write_text(json.dumps(result, ensure_ascii=False, indent=2))
 
 

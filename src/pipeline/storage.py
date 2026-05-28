@@ -202,6 +202,15 @@ def object_exists(object_key: str) -> bool:
         raise
 
 
+def list_existing(prefix: str) -> frozenset[str]:
+    """All keys under *prefix* as a frozenset — one LIST call instead of N HEADs.
+
+    Use for bulk existence checks (pre-flight / post-flight scans). Membership
+    lookup is O(1) after the single round-trip, vs O(N) sequential HEAD requests.
+    """
+    return frozenset(list_objects(prefix))
+
+
 def list_objects(prefix: str) -> list[str]:
     """List all keys under a prefix (paginated; handles > 1000 objects)."""
     root = _effective_local_root()

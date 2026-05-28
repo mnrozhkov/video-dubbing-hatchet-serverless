@@ -96,6 +96,7 @@ def _translate_one(
         print(f"  chunk {i + 1}/{len(chunks)} done", flush=True)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.unlink(missing_ok=True)  # S3 FUSE: unlink before write to avoid FileExistsError
     output_path.write_text(" ".join(translated).strip(), encoding="utf-8")
     return True
 

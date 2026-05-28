@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel
 
 from pipeline.config import config
-from pipeline.cost import estimate_cost, on_demand_estimate
+from pipeline.cost import estimate_cost
 from pipeline.paths import (
     RUNS_PREFIX,
     run_summary_key,
@@ -21,7 +21,7 @@ from pipeline.paths import (
     task_orch_report_key,
     task_report_key,
 )
-from pipeline.storage import list_objects, object_exists, read_json, upload_json
+from pipeline.storage import list_objects, read_json, upload_json
 from pipeline.utils import utc_now
 
 if TYPE_CHECKING:
@@ -355,21 +355,14 @@ def _job_run_s(record: dict[str, Any]) -> float:
     return float(terminal_at - running_at)
 
 
-def _job_cost_usd(record: dict[str, Any]) -> float:
-    return estimate_cost(
-        platform=record.get("platform", ""),
-        preset=record.get("preset", ""),
-        preemptible=bool(record.get("preemptible", False)),
-        run_s=_job_run_s(record),
-    )
-
-
-def _job_on_demand_usd(record: dict[str, Any]) -> float:
-    return on_demand_estimate(
-        platform=record.get("platform", ""),
-        preset=record.get("preset", ""),
-        run_s=_job_run_s(record),
-    )
+def _job_costs(record: dict[str, Any]) -> tuple[float, float, float]:
+    """Return (run_s, actual_usd, on_demand_usd) for one job record."""
+    platform = record.get("platform", "")
+    preset = record.get("preset", "")
+    run_s = _job_run_s(record)
+    actual = estimate_cost(platform, preset, bool(record.get("preemptible", False)), run_s)
+    on_demand = estimate_cost(platform, preset, False, run_s)
+    return run_s, actual, on_demand
 
 
 def write_task_orchestration_report(
@@ -381,15 +374,15 @@ def write_task_orchestration_report(
 ) -> dict[str, Any]:
     """Persist per-chunk Nebius job records for one stage + the cost rollup."""
     enriched: list[dict[str, Any]] = []
+    total_actual = 0.0
+    total_on_demand = 0.0
     for j in jobs:
-        run_s = _job_run_s(j)
-        enriched.append({
-            **j,
-            "run_s": round(run_s, 2),
-            "estimated_usd": round(_job_cost_usd(j), 4),
-        })
-    cost_usd = round(sum(_job_cost_usd(j) for j in jobs), 4)
-    on_demand_usd = round(sum(_job_on_demand_usd(j) for j in jobs), 4)
+        run_s, actual, on_demand = _job_costs(j)
+        enriched.append({**j, "run_s": round(run_s, 2), "estimated_usd": round(actual, 4)})
+        total_actual += actual
+        total_on_demand += on_demand
+    cost_usd = round(total_actual, 4)
+    on_demand_usd = round(total_on_demand, 4)
     payload = {
         "task": task,
         "run_id": run_id,
@@ -509,23 +502,76 @@ def missing_inputs(run: PipelineRun, task: str) -> dict[str, list[str]]:
     ``{"video_keys": [], "stems": [...]}`` for downstream stages. Empty values
     on both keys mean nothing to do.
     """
+    from pipeline.paths import task_artifacts_prefix
+    from pipeline.storage import list_existing
+
     items = _items_for(run, task)
     output_fields = _OUTPUT_FIELDS[task]
+    existing = list_existing(task_artifacts_prefix(run.run_id, task))
 
     if task == "extract":
         video_keys = [
             item["video_key"]
             for item in items
-            if any(not object_exists(item[f]) for f in output_fields)
+            if any(item[f] not in existing for f in output_fields)
         ]
         return {"video_keys": video_keys, "stems": []}
 
     stems = [
         item["stem"]
         for item in items
-        if any(not object_exists(item[f]) for f in output_fields)
+        if any(item[f] not in existing for f in output_fields)
     ]
     return {"video_keys": [], "stems": stems}
+
+
+def write_fan_out_task_report(
+    run: PipelineRun,
+    task: str,
+    expected: list[str],
+    *,
+    processed: int,
+) -> None:
+    """Write a consolidated task report from the orchestrator after fan-out completes.
+
+    In fan-out mode (max_concurrent > 1), each Nebius chunk container writes to the
+    same report key and the last one wins — leaving downstream stages with only one
+    chunk's worth of stems. This function overwrites that partial report with the
+    full set of confirmed-present outputs, so downstream pre-flight sees all files.
+    """
+    started = utc_now()
+    outputs_key = {
+        "extract": "audio_keys",
+        "transcribe": "transcript_keys",
+        "translate": "translated_keys",
+        "tts": "dubbed_keys",
+        "remux": "output_keys",
+    }[task]
+
+    extra: dict[str, list[str]] = {}
+    if task == "transcribe":
+        extra["aligned_keys"] = expected[1::2]
+        result_keys = expected[0::2]
+    else:
+        result_keys = expected
+
+    result: dict[str, Any] = {outputs_key: result_keys, **extra}
+    if task == "extract":
+        result["video_keys"] = list(run.video_keys)
+        result["stems"] = [Path(k).stem for k in result_keys]
+
+    total = len(result_keys)
+    skipped = total - processed
+    timing = {
+        "task": task,
+        "total_files": total,
+        "processed_files": processed,
+        "skipped_files": skipped,
+        "wall_s": 0.0,
+        "per_file_s": 0.0,
+    }
+    result["timing"] = timing
+    _write_task_report(run.run_id, run.batch_id, task, result, started_at=started)
 
 
 def write_skipped_report(run: PipelineRun, task: str, expected: list[str]) -> dict[str, Any]:

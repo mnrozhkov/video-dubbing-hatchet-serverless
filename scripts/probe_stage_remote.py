@@ -37,7 +37,7 @@ from pipeline.metadata import _job_run_s, read_task_report, write_task_manifest
 from pipeline.nebius import NebiusJobError, create_and_wait
 from pipeline.paths import resolve_video_keys, task_manifest_container_path
 from pipeline.run import PipelineRun
-from pipeline.storage import object_exists
+from pipeline.storage import list_existing
 
 STAGES = ("extract", "transcribe", "translate", "tts", "remux")
 
@@ -62,6 +62,8 @@ def parse_args() -> argparse.Namespace:
                    help="Run label (output namespace). Default: probe-<unix-ts>")
     p.add_argument("--target-lang", default=None,
                    help="NLLB target language code. Default: config.pipeline.target_lang")
+    p.add_argument("--preflight-only", action="store_true",
+                   help="Run pre-flight checks and exit without launching a Nebius job")
     return p.parse_args()
 
 
@@ -79,7 +81,14 @@ def _preflight(stage: str, run_id: str, video_keys: list[str]) -> str | None:
         "remux":      "tts",
     }
     if stage == "extract":
-        missing = [k for k in video_keys if not object_exists(k)]
+        from pathlib import PurePosixPath
+        if video_keys:
+            parent = str(PurePosixPath(video_keys[0]).parent)
+            prefix = (parent + "/") if parent != "." else ""
+            existing = list_existing(prefix)
+            missing = [k for k in video_keys if k not in existing]
+        else:
+            missing = []
         if missing:
             sample = ", ".join(missing[:3]) + ("…" if len(missing) > 3 else "")
             return f"{len(missing)}/{len(video_keys)} input video(s) missing in bucket: {sample}"
@@ -162,6 +171,8 @@ async def probe_stage(
 
     t0 = time.time()
     try:
+        import logging
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
         rec = await create_and_wait(
             name=f"probe-{stage}-{run_id}"[:50],
             image=image,
@@ -196,6 +207,24 @@ async def probe_stage(
 async def _cli_main() -> int:
     args = parse_args()
     run_id = args.run_id or f"probe-{int(time.time())}"
+
+    if args.preflight_only:
+        if args.stage == "extract":
+            try:
+                video_keys = resolve_video_keys(args.source or DEFAULT_SOURCE)
+            except ValueError as e:
+                print(f"✗ source resolution failed: {e}")
+                return 2
+        else:
+            video_keys = []
+        err = _preflight(args.stage, run_id, video_keys)
+        if err:
+            print(f"✗ pre-flight failed: {err}")
+            return 2
+        n = len(video_keys) if args.stage == "extract" else "upstream report found"
+        print(f"✓ pre-flight passed  stage={args.stage}  inputs={n}")
+        return 0
+
     return await probe_stage(
         args.stage,
         run_id,
